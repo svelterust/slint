@@ -152,6 +152,8 @@ pub type Rgb8Pixel = rgb::RGB8;
 /// Convenience alias for a pixel with four color channels (red, green, blue and alpha), each
 /// encoded as u8.
 pub type Rgba8Pixel = rgb::RGBA8;
+/// Convenience alias for a single-channel grayscale pixel encoded as u8.
+pub type Gray8Pixel = rgb::Gray<u8>;
 
 /// SharedImageBuffer is a container for images that are stored in CPU accessible memory.
 ///
@@ -174,6 +176,9 @@ pub enum SharedImageBuffer {
     /// Only construct this format if you know that your pixels are encoded this way. It is more efficient
     /// for rendering.
     RGBA8Premultiplied(SharedPixelBuffer<Rgba8Pixel>),
+    /// This variant holds the data for a grayscale image where each pixel is a single luminance
+    /// channel encoded as unsigned byte.
+    Gray8(SharedPixelBuffer<Gray8Pixel>),
 }
 
 impl SharedImageBuffer {
@@ -184,6 +189,7 @@ impl SharedImageBuffer {
             Self::RGB8(buffer) => buffer.width(),
             Self::RGBA8(buffer) => buffer.width(),
             Self::RGBA8Premultiplied(buffer) => buffer.width(),
+            Self::Gray8(buffer) => buffer.width(),
         }
     }
 
@@ -194,6 +200,7 @@ impl SharedImageBuffer {
             Self::RGB8(buffer) => buffer.height(),
             Self::RGBA8(buffer) => buffer.height(),
             Self::RGBA8Premultiplied(buffer) => buffer.height(),
+            Self::Gray8(buffer) => buffer.height(),
         }
     }
 
@@ -204,6 +211,7 @@ impl SharedImageBuffer {
             Self::RGB8(buffer) => buffer.size(),
             Self::RGBA8(buffer) => buffer.size(),
             Self::RGBA8Premultiplied(buffer) => buffer.size(),
+            Self::Gray8(buffer) => buffer.size(),
         }
     }
 }
@@ -219,6 +227,9 @@ impl PartialEq for SharedImageBuffer {
             }
             Self::RGBA8Premultiplied(lhs_buffer) => {
                 matches!(other, Self::RGBA8Premultiplied(rhs_buffer) if lhs_buffer.data.as_ptr().eq(&rhs_buffer.data.as_ptr()))
+            }
+            Self::Gray8(lhs_buffer) => {
+                matches!(other, Self::Gray8(rhs_buffer) if lhs_buffer.data.as_ptr().eq(&rhs_buffer.data.as_ptr()))
             }
         }
     }
@@ -847,6 +858,15 @@ impl Image {
         })
     }
 
+    /// Creates a new Image from the specified shared pixel buffer, where each pixel is a single
+    /// grayscale luminance value encoded as u8.
+    pub fn from_gray8(buffer: SharedPixelBuffer<Gray8Pixel>) -> Self {
+        Image(ImageInner::EmbeddedImage {
+            cache_key: ImageCacheKey::Invalid,
+            buffer: SharedImageBuffer::Gray8(buffer),
+        })
+    }
+
     /// Returns the pixel buffer for the Image if available in RGB format without alpha.
     /// Returns None if the pixels cannot be obtained, for example when the image was created from borrowed OpenGL textures.
     pub fn to_rgb8(&self) -> Option<SharedPixelBuffer<Rgb8Pixel>> {
@@ -888,6 +908,18 @@ impl Image {
                 height: buffer.height,
                 data: buffer.data.into_iter().map(Image::premultiplied_rgba_to_rgba).collect(),
             },
+            SharedImageBuffer::Gray8(buffer) => SharedPixelBuffer::<Rgba8Pixel> {
+                width: buffer.width,
+                height: buffer.height,
+                data: buffer
+                    .data
+                    .into_iter()
+                    .map(|g| {
+                        let v = g.value();
+                        Rgba8Pixel::new(v, v, v, 255)
+                    })
+                    .collect(),
+            },
         })
     }
 
@@ -907,6 +939,18 @@ impl Image {
                 data: buffer.data.into_iter().map(Image::rgba_to_premultiplied_rgba).collect(),
             },
             SharedImageBuffer::RGBA8Premultiplied(buffer) => buffer,
+            SharedImageBuffer::Gray8(buffer) => SharedPixelBuffer::<Rgba8Pixel> {
+                width: buffer.width,
+                height: buffer.height,
+                data: buffer
+                    .data
+                    .into_iter()
+                    .map(|g| {
+                        let v = g.value();
+                        Rgba8Pixel::new(v, v, v, 255)
+                    })
+                    .collect(),
+            },
         })
     }
 
@@ -1587,6 +1631,15 @@ pub(crate) mod ffi {
         b: u8,
         /// alpha value (between 0 and 255)
         a: u8,
+    }
+
+    // Expand Gray8Pixel so that cbindgen can generate its declaration.
+    /// Represents a grayscale pixel.
+    #[cfg(cbindgen)]
+    #[repr(C)]
+    struct Gray8Pixel {
+        /// Luminance value between 0 and 255.
+        v: u8,
     }
 
     // Keep the cfg free of target_arch: cbindgen maps target_arch = wasm32 to a C macro and
