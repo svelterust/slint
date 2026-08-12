@@ -429,15 +429,17 @@ impl<'a> SkiaItemRenderer<'a> {
                             / skia_image.height() as f32,
                     ))
                     * Matrix::translate((-(tiled_offset.x as i32), -(tiled_offset.y as i32)));
+                #[cfg(skia_backend_gpu)]
+                let mut recording_context = self.canvas.recording_context();
+                #[cfg(skia_backend_gpu)]
+                let recorder = recording_context
+                    .as_mut()
+                    .map(|c| c.as_recorder() as &mut dyn skia_safe::Recorder);
+                #[cfg(not(skia_backend_gpu))]
+                let recorder: Option<&mut dyn skia_safe::Recorder> = None;
+
                 if let Some(shader) = skia_image
-                    .make_subset(
-                        self.canvas
-                            .recording_context()
-                            .as_mut()
-                            .map(|c| c.as_recorder() as &mut dyn skia_safe::Recorder),
-                        src,
-                        skia_safe::image::RequiredProperties::default(),
-                    )
+                    .make_subset(recorder, src, skia_safe::image::RequiredProperties::default())
                     .and_then(|i| {
                         i.to_shader((TileMode::Repeat, TileMode::Repeat), filter_mode, &matrix)
                     })

@@ -11,6 +11,7 @@
 use std::cell::OnceCell;
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
+#[cfg(skia_windowed)]
 use std::sync::Arc;
 
 use i_slint_core::Brush;
@@ -18,6 +19,7 @@ use i_slint_core::api::{
     GraphicsAPI, PhysicalSize as PhysicalWindowSize, RenderingNotifier, RenderingState,
     SetRenderingNotifierError, Window,
 };
+#[cfg(skia_windowed)]
 use i_slint_core::graphics::RequestedGraphicsAPI;
 use i_slint_core::graphics::euclid::{self, Vector2D};
 use i_slint_core::graphics::rendering_metrics_collector::RenderingMetricsCollector;
@@ -53,7 +55,7 @@ pub mod d3d_surface;
 #[cfg(skia_backend_vulkan)]
 pub mod vulkan_surface;
 
-#[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
+#[cfg(skia_backend_opengl)]
 pub mod opengl_surface;
 
 #[cfg(feature = "wgpu-29")]
@@ -108,6 +110,7 @@ impl TextureEncoding {
 /// An sRGB attachment applies the transfer function when storing, so Skia has to hand it linear
 /// values. A UNORM attachment stores what it is given, so Skia keeps working in gamma encoded
 /// sRGB and no conversion happens at all.
+#[allow(dead_code)]
 pub(crate) fn attachment_color_space(encoding: TextureEncoding) -> skia_safe::ColorSpace {
     match encoding {
         TextureEncoding::Srgb => linear_srgb_color_space(),
@@ -270,16 +273,19 @@ pub struct SkiaRenderer {
     rendering_metrics_collector: RefCell<Option<Rc<RenderingMetricsCollector>>>,
     rendering_first_time: Cell<bool>,
     surface: RefCell<Option<Box<dyn Surface>>>,
+    #[cfg(skia_windowed)]
     surface_factory: SurfaceFactoryFn,
     pre_present_callback: RefCell<Option<Box<dyn FnMut()>>>,
     partial_rendering_state: Option<PartialRenderingState>,
     dirty_region_debug_mode: DirtyRegionDebugMode,
     /// Tracking dirty regions indexed by buffer age - 1. More than 3 back buffers aren't supported, but also unlikely to happen.
     dirty_region_history: RefCell<[DirtyRegion; 3]>,
+    #[cfg(skia_windowed)]
     shared_context: SkiaSharedContext,
 }
 
 /// Function pointer for creating the surface to render on, when needed.
+#[cfg(skia_windowed)]
 type SurfaceFactoryFn = fn(
     &SkiaSharedContext,
     window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,
@@ -289,6 +295,7 @@ type SurfaceFactoryFn = fn(
 ) -> Result<Box<dyn Surface>, PlatformError>;
 
 /// Creates a boxed surface of the concrete type `S`, in the shape of [`SurfaceFactoryFn`].
+#[cfg(skia_windowed)]
 fn surface_factory<S: Surface + 'static>(
     context: &SkiaSharedContext,
     window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,
@@ -301,9 +308,8 @@ fn surface_factory<S: Surface + 'static>(
 }
 
 impl SkiaRenderer {
-    fn new_with_surface_factory(
-        context: &SkiaSharedContext,
-        surface_factory: SurfaceFactoryFn,
+    fn new_without_surface(
+        _context: &SkiaSharedContext,
         partial_rendering_state: Option<PartialRenderingState>,
     ) -> Self {
         Self {
@@ -317,13 +323,28 @@ impl SkiaRenderer {
             rendering_metrics_collector: Default::default(),
             rendering_first_time: Default::default(),
             surface: Default::default(),
-            surface_factory,
+            #[cfg(skia_windowed)]
+            surface_factory: |_, _, _, _, _| {
+                Err("Skia renderer constructed with surface does not support dynamic surface re-creation".into())
+            },
             pre_present_callback: Default::default(),
             partial_rendering_state,
             dirty_region_debug_mode: Default::default(),
             dirty_region_history: Default::default(),
-            shared_context: context.clone(),
+            #[cfg(skia_windowed)]
+            shared_context: _context.clone(),
         }
+    }
+
+    #[cfg(skia_windowed)]
+    fn new_with_surface_factory(
+        context: &SkiaSharedContext,
+        surface_factory: SurfaceFactoryFn,
+        partial_rendering_state: Option<PartialRenderingState>,
+    ) -> Self {
+        let mut renderer = Self::new_without_surface(context, partial_rendering_state);
+        renderer.surface_factory = surface_factory;
+        renderer
     }
 
     #[cfg(skia_windowed)]
@@ -338,14 +359,21 @@ impl SkiaRenderer {
     #[cfg(skia_backend_software)]
     /// Creates a new SkiaRenderer that will always use Skia's software renderer.
     pub fn default_software(context: &SkiaSharedContext) -> Self {
-        Self::new_with_surface_factory(
-            context,
-            surface_factory::<software_surface::SoftwareSurface>,
-            PartialRenderingState::default().into(),
-        )
+        #[cfg(skia_windowed)]
+        {
+            Self::new_with_surface_factory(
+                context,
+                surface_factory::<software_surface::SoftwareSurface>,
+                PartialRenderingState::default().into(),
+            )
+        }
+        #[cfg(not(skia_windowed))]
+        {
+            Self::new_without_surface(context, PartialRenderingState::default().into())
+        }
     }
 
-    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
+    #[cfg(skia_backend_opengl)]
     /// Creates a new SkiaRenderer that will always use Skia's OpenGL renderer.
     pub fn default_opengl(context: &SkiaSharedContext) -> Self {
         Self::new_with_surface_factory(
@@ -406,6 +434,7 @@ impl SkiaRenderer {
     }
 
     /// Creates a new renderer is associated with the provided window adapter.
+    #[cfg(skia_windowed)]
     pub fn new(
         context: &SkiaSharedContext,
         window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,
@@ -423,11 +452,8 @@ impl SkiaRenderer {
         context: &SkiaSharedContext,
         surface: Box<dyn Surface + 'static>,
     ) -> Self {
-        let renderer = Self::new_with_surface_factory(
+        let renderer = Self::new_without_surface(
             context,
-            |_, _, _, _, _| {
-                Err("Skia renderer constructed with surface does not support dynamic surface re-creation".into())
-            },
             create_partial_renderer_state(Some(surface.as_ref())),
         );
         renderer.rendering_first_time.set(true);
@@ -482,6 +508,7 @@ impl SkiaRenderer {
     }
 
     /// Reset the surface to the window given the window handle
+    #[cfg(skia_windowed)]
     pub fn set_window_handle(
         &self,
         window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,
@@ -609,7 +636,9 @@ impl SkiaRenderer {
     fn render_components_to_canvas(
         &self,
         skia_canvas: &skia_safe::Canvas,
-        mut gr_context: Option<&mut skia_safe::gpu::DirectContext>,
+        #[allow(unused_mut, unused_variables)] mut gr_context: Option<
+            &mut skia_safe::gpu::DirectContext,
+        >,
         back_buffer_age: u8,
         surface: Option<&dyn Surface>,
         window: &i_slint_core::api::Window,
@@ -727,6 +756,7 @@ impl SkiaRenderer {
                 // For the BeforeRendering rendering notifier callback it's important that this happens *after* clearing
                 // the back buffer, in order to allow the callback to provide its own rendering of the background.
                 // Skia's clear() will merely schedule a clear call, so flush right away to make it immediate.
+                #[cfg(skia_backend_gpu)]
                 if let Some(ctx) = gr_context.as_mut() {
                     ctx.flush(None);
                 }
@@ -775,6 +805,7 @@ impl SkiaRenderer {
             }
         }
 
+        #[cfg(skia_backend_gpu)]
         if let Some(ctx) = gr_context.as_mut() {
             ctx.flush(None);
         }
@@ -917,6 +948,7 @@ impl Drop for SkiaRenderer {
 /// with a metal layer, a wayland window with an OpenGL context, etc.
 pub trait Surface {
     /// Creates a new surface with the given window, display, and size.
+    #[cfg(skia_windowed)]
     fn new(
         shared_context: &SkiaSharedContext,
         window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Sync + Send>,

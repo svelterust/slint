@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
 
 use i_slint_core::api::{PhysicalSize as PhysicalWindowSize, Window};
+#[cfg(skia_windowed)]
 use i_slint_core::graphics::RequestedGraphicsAPI;
 use i_slint_core::partial_renderer::DirtyRegion;
 use i_slint_core::renderer::DrawOutcome;
@@ -9,8 +10,10 @@ use i_slint_core::renderer::DrawOutcome;
 use std::cell::RefCell;
 use std::num::NonZeroU32;
 use std::rc::Rc;
+#[cfg(skia_windowed)]
 use std::sync::Arc;
 
+#[cfg(skia_windowed)]
 use crate::SkiaSharedContext;
 
 pub trait RenderBuffer {
@@ -114,7 +117,7 @@ pub struct SoftwareSurface {
 }
 
 impl super::Surface for SoftwareSurface {
-    #[cfg(feature = "softbuffer")]
+    #[cfg(all(skia_windowed, feature = "softbuffer"))]
     fn new(
         _shared_context: &SkiaSharedContext,
         window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,
@@ -136,7 +139,7 @@ impl super::Surface for SoftwareSurface {
         Ok(Self { render_buffer: surface_access })
     }
 
-    #[cfg(not(feature = "softbuffer"))]
+    #[cfg(all(skia_windowed, not(feature = "softbuffer")))]
     fn new(
         _shared_context: &SkiaSharedContext,
         _window_handle: Arc<dyn raw_window_handle::HasWindowHandle + Send + Sync>,

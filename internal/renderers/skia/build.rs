@@ -6,12 +6,13 @@ use cfg_aliases::cfg_aliases;
 fn main() {
     // Setup cfg aliases
     cfg_aliases! {
-       skia_backend_opengl: { any(feature = "opengl", not(any(target_vendor = "apple", target_family = "windows", target_arch = "wasm32"))) },
+       skia_backend_opengl: { any(feature = "opengl", all(feature = "windowed", not(any(target_vendor = "apple", target_family = "windows", target_arch = "wasm32")))) },
        skia_backend_metal: { all(target_vendor = "apple", not(feature = "opengl")) },
        skia_backend_vulkan: { feature = "vulkan" },
+       skia_backend_gpu: { any(skia_backend_opengl, skia_backend_vulkan, skia_backend_metal, target_family = "windows", feature = "wgpu-29", feature = "wgpu-30") },
        skia_backend_software: { not(target_os = "android") },
        skia_backend_softbuffer: { all(skia_backend_software, feature = "softbuffer") },
-       skia_windowed: { any(skia_backend_vulkan, skia_backend_opengl, skia_backend_metal, skia_backend_softbuffer) },
+       skia_windowed: { any(skia_backend_vulkan, skia_backend_opengl, skia_backend_metal, skia_backend_softbuffer, feature = "wgpu-29", feature = "wgpu-30") },
     }
 
     println!("cargo:rustc-check-cfg=cfg(slint_nightly_test)");
