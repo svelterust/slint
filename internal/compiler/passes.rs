@@ -293,15 +293,17 @@ pub async fn run_passes(
     // The fonts (system + imported) used to embed glyphs and rasterize SVG text are
     // shared between `embed_images` and `embed_glyphs`, so the system is scanned once.
     #[cfg(feature = "renderer-software")]
-    let font_collection = (type_loader.compiler_config.embed_resources
-        == crate::EmbedResourcesKind::EmbedTextures)
-        .then(|| {
-            let custom = embed_glyphs::read_custom_fonts(
-                std::iter::once(&*doc).chain(type_loader.all_documents()),
-                diag,
-            );
-            embed_glyphs::shared_font_collection(custom)
-        });
+    let font_collection = matches!(
+        type_loader.compiler_config.embed_resources,
+        crate::EmbedResourcesKind::EmbedTextures | crate::EmbedResourcesKind::EmbedForSkiaEink
+    )
+    .then(|| {
+        let custom = embed_glyphs::read_custom_fonts(
+            std::iter::once(&*doc).chain(type_loader.all_documents()),
+            diag,
+        );
+        embed_glyphs::shared_font_collection(custom)
+    });
     #[cfg(not(feature = "renderer-software"))]
     let font_collection: Option<embed_images::SharedFontCollection> = None;
 
@@ -335,7 +337,7 @@ pub async fn run_passes(
 
     match type_loader.compiler_config.embed_resources {
         #[cfg(feature = "renderer-software")]
-        crate::EmbedResourcesKind::EmbedTextures => {
+        crate::EmbedResourcesKind::EmbedTextures | crate::EmbedResourcesKind::EmbedForSkiaEink => {
             let mut characters_seen = std::collections::HashSet::new();
 
             let sf = type_loader.compiler_config.const_scale_factor.unwrap_or(1.) as f64;

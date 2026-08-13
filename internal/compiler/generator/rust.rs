@@ -5836,8 +5836,10 @@ fn generate_resources(doc: &Document) -> Vec<TokenStream> {
                     )
                 },
                 #[cfg(feature = "renderer-software")]
-                crate::embedded_resources::EmbeddedResourcesKind::BitmapFontData(crate::embedded_resources::BitmapFont { family_name, character_map, units_per_em, ascent, descent, x_height, cap_height, glyphs, weight, italic, sdf }) => {
+                crate::embedded_resources::EmbeddedResourcesKind::BitmapFontData(crate::embedded_resources::BitmapFont { source_data, face_index, family_name, character_map, units_per_em, ascent, descent, x_height, cap_height, glyphs, weight, italic, sdf, packed }) => {
 
+                    let source_data_size = source_data.len();
+                    let source_data_symbol = format_ident!("SLINT_EMBEDDED_RESOURCE_{}_FONT_DATA", resource_id);
                     let character_map_size = character_map.len();
 
                     let character_map = character_map.iter().map(|crate::embedded_resources::CharacterMapEntry{code_point, glyph_index}| quote!(sp::CharacterMapEntry { code_point: #code_point, glyph_index: #glyph_index }));
@@ -5846,10 +5848,11 @@ fn generate_resources(doc: &Document) -> Vec<TokenStream> {
 
                     let glyphs = glyphs.iter().map(|crate::embedded_resources::BitmapGlyphs{pixel_size, glyph_data}| {
                         let glyph_data_size = glyph_data.len();
-                        let glyph_data = glyph_data.iter().map(|crate::embedded_resources::BitmapGlyph{x, y, width, height, x_advance, data}|{
+                        let glyph_data = glyph_data.iter().map(|crate::embedded_resources::BitmapGlyph{glyph_id, x, y, width, height, x_advance, data}|{
                             let data_size = data.len();
                             quote!(
                                 sp::BitmapGlyph {
+                                    glyph_id: #glyph_id,
                                     x: #x,
                                     y: #y,
                                     width: #width,
@@ -5878,7 +5881,11 @@ fn generate_resources(doc: &Document) -> Vec<TokenStream> {
 
                     quote!(
                         #link_section
+                        static #source_data_symbol: [u8; #source_data_size] = [#(#source_data),*];
+                        #link_section
                         static #symbol: sp::BitmapFont = sp::BitmapFont {
+                            source_data: sp::Slice::from_slice(&#source_data_symbol),
+                            face_index: #face_index,
                             family_name: sp::Slice::from_slice(#family_name.as_bytes()),
                             character_map: sp::Slice::from_slice({
                                 #link_section
@@ -5898,6 +5905,7 @@ fn generate_resources(doc: &Document) -> Vec<TokenStream> {
                             weight: #weight,
                             italic: #italic,
                             sdf: #sdf,
+                            packed: #packed,
                         };
                     )
                 },

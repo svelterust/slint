@@ -48,6 +48,7 @@ impl Texture {
 #[cfg(feature = "renderer-software")]
 #[derive(Debug, Clone, Default)]
 pub struct BitmapGlyph {
+    pub glyph_id: u16,
     pub x: i16,
     pub y: i16,
     pub width: i16,
@@ -74,6 +75,8 @@ pub struct CharacterMapEntry {
 #[cfg(feature = "renderer-software")]
 #[derive(Debug, Clone)]
 pub struct BitmapFont {
+    pub source_data: Vec<u8>,
+    pub face_index: u32,
     pub family_name: String,
     /// map of available glyphs, sorted by char
     pub character_map: Vec<CharacterMapEntry>,
@@ -87,6 +90,8 @@ pub struct BitmapFont {
     pub italic: bool,
     /// true when the font is represented as a signed distance field
     pub sdf: bool,
+    /// Whether glyph data contains row-aligned, most-significant-bit-first one-bit masks.
+    pub packed: bool,
 }
 
 #[derive(Debug, Clone)]

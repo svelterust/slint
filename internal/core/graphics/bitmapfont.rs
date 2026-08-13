@@ -7,6 +7,8 @@ use crate::slice::Slice;
 #[derive(Debug)]
 /// A pre-rendered glyph with the alpha map and associated metrics
 pub struct BitmapGlyph {
+    /// The glyph identifier in the source font.
+    pub glyph_id: u16,
     /// The starting x-coordinate for the glyph, relative to the base line
     /// This is a fixed point number that is shifted by 6 bits
     pub x: i16,
@@ -50,6 +52,10 @@ pub struct CharacterMapEntry {
 #[derive(Debug)]
 /// A subset of an originally scalable font that's rendered ahead of time.
 pub struct BitmapFont {
+    /// The source font data used for shaping.
+    pub source_data: Slice<'static, u8>,
+    /// The index of the font in a font collection.
+    pub face_index: u32,
     /// The family name of the font
     pub family_name: Slice<'static, u8>,
     /// A vector of code points and their corresponding glyph index, sorted by code point.
@@ -73,4 +79,6 @@ pub struct BitmapFont {
     pub italic: bool,
     /// Whether the format of the font is a signed distance field
     pub sdf: bool,
+    /// Whether glyph data contains row-aligned, most-significant-bit-first one-bit masks.
+    pub packed: bool,
 }

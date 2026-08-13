@@ -1090,6 +1090,36 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         y_offset: sharedparley::PhysicalLength,
         glyphs_it: &mut dyn Iterator<Item = sharedparley::parley::layout::Glyph>,
     ) {
+        let glyphs = glyphs_it.collect::<Vec<_>>();
+        let pixel_size = font_size.get().round() as i16;
+        if !synthesis.any()
+            && self.canvas.image_info().color_type() == skia_safe::ColorType::Gray8
+            && brush.style() == skia_safe::PaintStyle::Fill
+            && (font_size.get() - pixel_size as f32).abs() < f32::EPSILON
+        {
+            let bitmap_glyphs = glyphs
+                .iter()
+                .map(|glyph| {
+                    u16::try_from(glyph.id)
+                        .ok()
+                        .and_then(|id| crate::font_cache::bitmap_glyph(font, pixel_size, id))
+                        .map(|image| (glyph, image))
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(bitmap_glyphs) = bitmap_glyphs {
+                for (glyph, image) in bitmap_glyphs {
+                    if let Some(image_data) = image.image {
+                        self.canvas.draw_image(
+                            &image_data,
+                            (glyph.x + image.x, glyph.y + y_offset.get() + image.y),
+                            Some(&brush),
+                        );
+                    }
+                }
+                return;
+            }
+        }
+
         let Some(type_face) = crate::font_cache::FONT_CACHE
             .with_borrow_mut(|font_cache| font_cache.font_with_variations(font, synthesis))
         else {
@@ -1099,7 +1129,7 @@ impl GlyphRenderer for SkiaItemRenderer<'_> {
         font.set_subpixel(true);
         font.set_edging(skia_safe::font::Edging::Alias);
 
-        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs_it
+        let (glyph_ids, glyph_positions): (Vec<_>, Vec<_>) = glyphs
             .into_iter()
             .map(|g| (g.id as skia_safe::GlyphId, skia_safe::Point::new(g.x, g.y + y_offset.get())))
             .unzip();

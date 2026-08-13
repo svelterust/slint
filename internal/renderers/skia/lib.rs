@@ -836,6 +836,18 @@ impl SkiaRenderer {
 }
 
 impl i_slint_core::renderer::RendererSealed for SkiaRenderer {
+    fn register_bitmap_font(&self, font_data: &'static i_slint_core::graphics::BitmapFont) {
+        if font_data.packed {
+            font_cache::register_bitmap_font(font_data);
+            if let Some(context) = self.slint_context() {
+                context
+                    .font_context()
+                    .borrow_mut()
+                    .register_static_font(font_data.source_data.as_slice());
+            }
+        }
+    }
+
     fn text_layout_cache(&self) -> Option<&sharedparley::TextLayoutCache> {
         Some(&self.text_layout_cache)
     }

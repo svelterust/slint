@@ -83,6 +83,9 @@ pub enum EmbedResourcesKind {
     /// a PNG stays compressed), and decoded at run-time.
     EmbedFiles,
     #[cfg(feature = "renderer-software")]
+    /// Fonts are pre-rendered as packed one-bit masks for the Gray8 Skia e-ink renderer.
+    EmbedForSkiaEink,
+    #[cfg(feature = "renderer-software")]
     /// Images and fonts are pre-processed at compile time and embedded as uncompressed pixel
     /// data, ready to be drawn by the software renderer without any decoding at run-time.
     ///
@@ -169,6 +172,10 @@ impl CompilerConfiguration {
             }
             EmbedResourcesKind::EmbedFiles => {
                 i_slint_compiler::EmbedResourcesKind::EmbedAllResources
+            }
+            #[cfg(feature = "renderer-software")]
+            EmbedResourcesKind::EmbedForSkiaEink => {
+                i_slint_compiler::EmbedResourcesKind::EmbedForSkiaEink
             }
             #[cfg(feature = "renderer-software")]
             EmbedResourcesKind::EmbedForSoftwareRenderer => {

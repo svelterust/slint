@@ -57,7 +57,11 @@ impl GlyphRenderer for PixelFont {
             y: h_plus_y - Fixed::from_integer(height),
             width: PhysicalLength::new(width as i16),
             height: PhysicalLength::new(height as i16),
-            alpha_map: bitmap_glyph.data.as_slice().into(),
+            alpha_map: if self.bitmap_font.packed {
+                return None;
+            } else {
+                bitmap_glyph.data.as_slice().into()
+            },
             pixel_stride: bitmap_glyph.width as u16,
             sdf: self.bitmap_font.sdf,
         })

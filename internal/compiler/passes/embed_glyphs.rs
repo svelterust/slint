@@ -380,18 +380,23 @@ fn embed_font(
     pixel_sizes: &[i16],
     character_coverage: impl Iterator<Item = char>,
     fallback_fonts: &[Font],
-    _compiler_config: &CompilerConfiguration,
+    compiler_config: &CompilerConfiguration,
     normalized_coords: &[skrifa::instance::NormalizedCoord],
     _variations: &[(skrifa::Tag, f32)],
     override_weight: Option<u16>,
 ) -> BitmapFont {
+    let packed = compiler_config.embed_resources == crate::EmbedResourcesKind::EmbedForSkiaEink;
     let coords_i16: Vec<i16> = normalized_coords.iter().map(|c| c.to_bits()).collect();
 
     let mut character_map: Vec<CharacterMapEntry> = character_coverage
         .filter(|code_point| {
-            core::iter::once(&font)
-                .chain(fallback_fonts.iter())
-                .any(|font| swash_font_ref(font).charmap().map(*code_point) != 0)
+            if packed {
+                swash_font_ref(&font).charmap().map(*code_point) != 0
+            } else {
+                core::iter::once(&font)
+                    .chain(fallback_fonts.iter())
+                    .any(|font| swash_font_ref(font).charmap().map(*code_point) != 0)
+            }
         })
         .enumerate()
         .map(|(glyph_index, code_point)| CharacterMapEntry {
@@ -402,14 +407,27 @@ fn embed_font(
         .collect();
 
     #[cfg(feature = "sdf-fonts")]
-    let glyphs = if _compiler_config.use_sdf_fonts {
+    let glyphs = if compiler_config.use_sdf_fonts {
         embed_sdf_glyphs(pixel_sizes, &character_map, &font, fallback_fonts, _variations)
     } else {
-        embed_alpha_map_glyphs(pixel_sizes, &character_map, &font, fallback_fonts, &coords_i16)
+        embed_alpha_map_glyphs(
+            pixel_sizes,
+            &character_map,
+            &font,
+            fallback_fonts,
+            &coords_i16,
+            packed,
+        )
     };
     #[cfg(not(feature = "sdf-fonts"))]
-    let glyphs =
-        embed_alpha_map_glyphs(pixel_sizes, &character_map, &font, fallback_fonts, &coords_i16);
+    let glyphs = embed_alpha_map_glyphs(
+        pixel_sizes,
+        &character_map,
+        &font,
+        fallback_fonts,
+        &coords_i16,
+        packed,
+    );
 
     character_map.sort_by_key(|entry| entry.code_point);
 
@@ -420,6 +438,8 @@ fn embed_font(
     let attrs = skrifa::attribute::Attributes::new(&font_ref);
 
     BitmapFont {
+        source_data: packed.then(|| font.font.blob.data().to_vec()).unwrap_or_default(),
+        face_index: font.font.index,
         family_name,
         character_map,
         units_per_em: metrics.units_per_em as f32,
@@ -431,9 +451,10 @@ fn embed_font(
         weight: override_weight.unwrap_or(attrs.weight.value() as u16),
         italic: attrs.style != skrifa::attribute::Style::Normal,
         #[cfg(feature = "sdf-fonts")]
-        sdf: _compiler_config.use_sdf_fonts,
+        sdf: compiler_config.use_sdf_fonts,
         #[cfg(not(feature = "sdf-fonts"))]
         sdf: false,
+        packed,
     }
 }
 
@@ -444,6 +465,7 @@ fn embed_alpha_map_glyphs(
     font: &Font,
     fallback_fonts: &[Font],
     normalized_coords: &[i16],
+    packed: bool,
 ) -> Vec<BitmapGlyphs> {
     use rayon::prelude::*;
     use std::cell::RefCell;
@@ -459,10 +481,14 @@ fn embed_alpha_map_glyphs(
             let glyph_data = character_map
                 .par_iter()
                 .map(|CharacterMapEntry { code_point, .. }| {
-                    let font_to_use = core::iter::once(font)
-                        .chain(fallback_fonts.iter())
-                        .find(|f| swash_font_ref(f).charmap().map(*code_point) != 0)
-                        .unwrap_or(font);
+                    let font_to_use = if packed {
+                        font
+                    } else {
+                        core::iter::once(font)
+                            .chain(fallback_fonts.iter())
+                            .find(|f| swash_font_ref(f).charmap().map(*code_point) != 0)
+                            .unwrap_or(font)
+                    };
 
                     let font_ref = swash_font_ref(font_to_use);
                     let glyph_id = font_ref.charmap().map(*code_point);
@@ -486,7 +512,17 @@ fn embed_alpha_map_glyphs(
                         match image {
                             Some(image) => {
                                 let p = image.placement;
+                                let data = if packed {
+                                    pack_alpha_mask(
+                                        &image.data,
+                                        p.width as usize,
+                                        p.height as usize,
+                                    )
+                                } else {
+                                    image.data
+                                };
                                 BitmapGlyph {
+                                    glyph_id,
                                     x: i16::try_from(p.left * 64)
                                         .expect("large glyph x coordinate"),
                                     y: i16::try_from((p.top - p.height as i32) * 64)
@@ -495,10 +531,11 @@ fn embed_alpha_map_glyphs(
                                     height: i16::try_from(p.height).expect("large height"),
                                     x_advance: i16::try_from((advance_width * 64.) as i64)
                                         .expect("large advance width"),
-                                    data: image.data,
+                                    data,
                                 }
                             }
                             None => BitmapGlyph {
+                                glyph_id,
                                 x: 0,
                                 y: 0,
                                 width: 0,
@@ -515,6 +552,35 @@ fn embed_alpha_map_glyphs(
             BitmapGlyphs { pixel_size: *pixel_size, glyph_data }
         })
         .collect()
+}
+
+fn pack_alpha_mask(alpha: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let row_stride = width.div_ceil(8);
+    let mut packed = vec![0; row_stride * height];
+    for y in 0..height {
+        for x in 0..width {
+            if alpha[y * width + x] >= 128 {
+                packed[y * row_stride + x / 8] |= 0x80 >> (x % 8);
+            }
+        }
+    }
+    packed
+}
+
+#[cfg(test)]
+mod packed_mask_tests {
+    use super::pack_alpha_mask;
+
+    #[test]
+    fn packs_rows_most_significant_bit_first() {
+        let alpha = [255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 0, 0, 0, 0, 0, 0, 255, 0];
+        assert_eq!(pack_alpha_mask(&alpha, 9, 2), [0xaa, 0x80, 0x00, 0x80]);
+    }
+
+    #[test]
+    fn thresholds_coverage() {
+        assert_eq!(pack_alpha_mask(&[0, 127, 128, 255], 4, 1), [0x30]);
+    }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), feature = "sdf-fonts"))]
@@ -598,6 +664,7 @@ fn generate_sdf_for_glyph(
     let Some(bbox) = face.glyph_bounding_box(glyph_id) else {
         // For example, for space
         return Some(BitmapGlyph {
+            glyph_id: glyph_id.0,
             x_advance: (face.glyph_hor_advance(glyph_id).unwrap_or(0) as f64 * scale * 64.) as i16,
             ..Default::default()
         });
@@ -650,6 +717,7 @@ fn generate_sdf_for_glyph(
     glyph_data.push(0);
 
     let bg = BitmapGlyph {
+        glyph_id: glyph_id.0,
         x: i16::try_from((-(1. - bbox.x_min as f64 * scale) * 64.).ceil() as i32)
             .expect("large glyph x coordinate"),
         y: i16::try_from((-(1. - bbox.y_min as f64 * scale) * 64.).ceil() as i32)

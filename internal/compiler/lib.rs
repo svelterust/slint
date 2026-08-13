@@ -64,6 +64,9 @@ pub enum EmbedResourcesKind {
     /// compressed), to be decoded at run-time.
     EmbedAllResources,
     #[cfg(feature = "renderer-software")]
+    /// Pre-render fonts as packed one-bit masks for the Gray8 Skia e-ink renderer.
+    EmbedForSkiaEink,
+    #[cfg(feature = "renderer-software")]
     /// Pre-process images and fonts at compile time and embed them as uncompressed pixel data,
     /// ready to be drawn by the software renderer without any decoding at run-time.
     ///

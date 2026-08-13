@@ -1194,6 +1194,8 @@ fn embed_resource(
         #[cfg(feature = "renderer-software")]
         crate::embedded_resources::EmbeddedResourcesKind::BitmapFontData(
             crate::embedded_resources::BitmapFont {
+                source_data,
+                face_index,
                 family_name,
                 character_map,
                 units_per_em,
@@ -1205,8 +1207,24 @@ fn embed_resource(
                 weight,
                 italic,
                 sdf,
+                packed,
             },
         ) => {
+            let source_data_var =
+                format_smolstr!("slint_embedded_resource_{}_source_data", resource_id);
+            let source_data_storage_size = source_data.len().max(1);
+            let source_data_init = if source_data.is_empty() {
+                "0".into()
+            } else {
+                source_data.iter().map(ToString::to_string).join(", ")
+            };
+            declarations.push(Declaration::Var(Var {
+                ty: "const uint8_t".into(),
+                name: source_data_var.clone(),
+                array_size: Some(source_data_storage_size),
+                init: Some(format!("{{ {source_data_init} }}")),
+                ..Default::default()
+            }));
             let family_name_var =
                 format_smolstr!("slint_embedded_resource_{}_family_name", resource_id);
             let family_name_size = family_name.len();
@@ -1264,8 +1282,8 @@ fn embed_resource(
                     name: format_smolstr!("slint_embedded_resource_{}_glyphset_{}", resource_id, glyphset_index),
                     array_size: Some(glyphset.glyph_data.len()),
                     init: Some(format!("{{ {} }}", glyphset.glyph_data.iter().enumerate().map(|(glyph_index, glyph)| {
-                        format!("{{ .x = {}, .y = {}, .width = {}, .height = {}, .x_advance = {}, .data = slint::private_api::make_slice({}, {}) }}",
-                        glyph.x, glyph.y, glyph.width, glyph.height, glyph.x_advance,
+                        format!("{{ .glyph_id = {}, .x = {}, .y = {}, .width = {}, .height = {}, .x_advance = {}, .data = slint::private_api::make_slice({}, {}) }}",
+                        glyph.glyph_id, glyph.x, glyph.y, glyph.width, glyph.height, glyph.x_advance,
                         format_args!("slint_embedded_resource_{}_gs_{}_gd_{}", resource_id, glyphset_index, glyph_index),
                         glyph.data.len()
                     )
@@ -1295,8 +1313,11 @@ fn embed_resource(
                 ..Default::default()
             }));
 
+            let source_data_size = source_data.len();
             let init = format!(
                 "slint::cbindgen_private::BitmapFont {{
+                        .source_data = slint::private_api::make_slice({source_data_var}, {source_data_size}),
+                        .face_index = {face_index},
                         .family_name = slint::private_api::make_slice({family_name_var} , {family_name_size}),
                         .character_map = slint::private_api::make_slice({charmap_var}, {charmap_size}),
                         .units_per_em = {units_per_em},
@@ -1308,6 +1329,7 @@ fn embed_resource(
                         .weight = {weight},
                         .italic = {italic},
                         .sdf = {sdf},
+                        .packed = {packed},
                 }}"
             );
 

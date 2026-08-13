@@ -43,6 +43,9 @@ enum Embedding {
     /// used
     #[cfg(feature = "renderer-software")]
     EmbedForSoftwareRenderer,
+    /// Pre-render fonts as packed one-bit masks for the Gray8 Skia e-ink renderer.
+    #[cfg(feature = "renderer-software")]
+    EmbedForSkiaEink,
     /// Same as "embed-files-for-software-renderer" but use Signed Distance Field (SDF) to render fonts.
     /// This produces smaller binaries, but may result in slightly inferior visual output and slower rendering.
     #[cfg(all(feature = "renderer-software", feature = "sdf-fonts"))]
@@ -238,6 +241,8 @@ fn main() -> std::io::Result<()> {
             Embedding::EmbedFiles => EmbedResourcesKind::EmbedAllResources,
             #[cfg(feature = "renderer-software")]
             Embedding::EmbedForSoftwareRenderer => EmbedResourcesKind::EmbedTextures,
+            #[cfg(feature = "renderer-software")]
+            Embedding::EmbedForSkiaEink => EmbedResourcesKind::EmbedForSkiaEink,
             #[cfg(all(feature = "renderer-software", feature = "sdf-fonts"))]
             Embedding::EmbedForSoftwareRendererWithSdf => {
                 compiler_config.use_sdf_fonts = true;
